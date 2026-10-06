@@ -153,16 +153,24 @@ export function MedirFoto({ onUsar }: Props) {
     return { x: Math.min(Math.max(p.x, 0), foto!.w), y: Math.min(Math.max(p.y, 0), foto!.h) }
   }
 
+  const capturar = (e: React.PointerEvent) => {
+    try {
+      svgRef.current?.setPointerCapture(e.pointerId)
+    } catch {
+      // ponteiro que já saiu: segue sem captura
+    }
+  }
+
   const comecar = (e: React.PointerEvent, a: Arrasto) => {
     e.stopPropagation()
-    svgRef.current?.setPointerCapture(e.pointerId)
+    capturar(e)
     toques.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     setArrasto(a)
   }
 
   /** toque na foto (fora das alças): um dedo arrasta a vista, dois dedos dão zoom */
   const tocarFundo = (e: React.PointerEvent) => {
-    svgRef.current?.setPointerCapture(e.pointerId)
+    capturar(e)
     toques.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     if (toques.current.size === 2) {
       const [a, b] = [...toques.current.values()] as [Ponto, Ponto]
