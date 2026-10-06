@@ -33,7 +33,7 @@ function Previa({ lista }: { lista: ParedeMedida[] }) {
     const b = pts[(i + 1) % pts.length]!
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
   }
-  const fonte = Math.max(w, h) * 0.07
+  const fonte = Math.max(w, h) * 0.1
   return (
     <svg viewBox={`${minX - m} ${minY - m} ${w + 2 * m} ${h + 2 * m}`} className="mx-auto h-36 w-full">
       <polygon points={pts.map((p) => `${p.x},${p.y}`).join(' ')} fill="#fff7ed" stroke="#1c1917" strokeWidth={Math.max(w, h) * 0.02} strokeLinejoin="round" />
@@ -167,7 +167,7 @@ export function NovoComodo({ posicao, onFechar, onCriar, onContornar }: Props) {
                   />
                   {regua(i, `Medir parede ${i + 1} com a câmera`)}
                   <button
-                    className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-300 px-2 py-2 text-xs dark:border-stone-600"
+                    className="flex w-24 shrink-0 items-center justify-center gap-1 rounded-lg border border-stone-300 px-2 py-2 text-xs dark:border-stone-600"
                     onClick={() => setLinhas((ls) => ls.map((x, j) => (j === i ? { ...x, giro: x.giro === 90 ? -90 : 90 } : x)))}
                     title="Para onde o canto vira no fim desta parede"
                   >
