@@ -1,29 +1,31 @@
 # Planta IA
 
-Plataforma web para gerar planta baixa a partir de fotos de um ambiente e de uma medida tirada com trena.
+Plataforma web para levantar a planta baixa de um ambiente com medidas reais. Funciona inteira no navegador, sem servidor e sem nenhum serviço pago.
 
-1. Para cada cômodo, envie de 4 a 8 fotos cobrindo todas as paredes e informe pelo menos uma medida (ex.: "parede da janela = 3,20 m").
-2. A IA (Claude) devolve paredes, cantos, pé-direito, portas e janelas; o app fecha o polígono e desenha a planta com cotas.
-3. Corrija o que precisar no editor: arraste os cantos, edite comprimentos, portas e janelas. Arraste os cômodos para montar a planta da casa; eles se encaixam pelos cantos.
-4. Exporte em PDF (A4/A3, com escala e carimbo), DXF (AutoCAD, em metros) ou `.dae` (SketchUp: Arquivo → Importar).
+## Como se mede
+
+- **Contorno com a câmera (AR):** marque os cantos do piso com o celular e o cômodo sai pronto. Usa WebXR, então funciona no Chrome do Android com ARCore e precisa de https.
+- **Parede por parede:** informe o comprimento de cada parede em cm e para que lado vira cada canto. O app fecha o polígono, repartindo a diferença entre as medidas sem tirar os cantos do esquadro, e mostra quanto faltou para fechar.
+- **Medir na foto (qualquer celular):** com uma folha A4 ou um cartão encostado na parede, os 4 cantos da referência dão a escala (homografia) e qualquer distância naquele plano sai em cm.
+- **Retângulo:** largura × profundidade.
+
+Depois, no editor, dá para arrastar cantos e cômodos (eles se encaixam pelos cantos), editar paredes, portas e janelas e exportar em PDF (A4/A3, com escala e carimbo), DXF (AutoCAD, em metros) ou `.dae` (SketchUp: Arquivo → Importar).
 
 ## Rodar
 
 ```bash
 bun install
-cp .dev.vars.exemplo .dev.vars   # coloque sua ANTHROPIC_API_KEY
 bun run dev
 ```
 
-Sem a chave, o app funciona com o modo "Desenhar retângulo"; só a análise por fotos precisa dela.
+O build (`bun run build`) gera um site estático em `dist/`, que pode ser hospedado em qualquer lugar gratuito com https (Cloudflare Pages, GitHub Pages, Netlify).
 
 ## Estrutura
 
-- `worker/index.ts`: Cloudflare Worker, rota `POST /api/analisar` (fotos + medidas → leitura estruturada do cômodo).
-- `src/lib/leitura.ts`: esquema da resposta da IA (compartilhado entre Worker e app).
-- `src/lib/montar.ts`: leitura → polígono fechado (reparte o erro de fechamento mantendo o esquadro).
 - `src/lib/geometria.ts`: paredes, espessura, vãos, esticar parede.
-- `src/componentes/`: desenho técnico (SVG), editor, painel do cômodo, formulário de fotos.
+- `src/lib/montar.ts`: paredes medidas ou contorno → cômodo fechado.
+- `src/lib/homografia.ts`: medição na foto.
+- `src/componentes/`: desenho técnico (SVG), editor, painel, novo cômodo, medidores (AR e foto).
 - `src/lib/exportar/`: PDF, DXF e COLLADA.
 
 ## Testes

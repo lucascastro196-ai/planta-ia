@@ -8,7 +8,7 @@ import { baixar, carregarProjeto, nomeArquivo, salvarProjeto } from './lib/armaz
 import { gerarDAE } from './lib/exportar/dae'
 import { gerarDXF } from './lib/exportar/dxf'
 import { limites } from './lib/geometria'
-import { comodoDaLeitura, comodoDoContorno, comodoRetangular } from './lib/montar'
+import { comodoDoContorno } from './lib/montar'
 import { projetoVazio, type Comodo, type Ponto, type Projeto } from './lib/tipos'
 
 const LIMITE_DESFAZER = 50
@@ -197,10 +197,10 @@ export default function App() {
           {projeto.comodos.length === 0 && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
               <div className="pointer-events-auto max-w-sm rounded-2xl bg-white/95 p-6 text-center shadow-lg dark:bg-stone-800/95">
-                <h1 className="mb-2 text-lg font-semibold">Planta baixa a partir de fotos</h1>
+                <h1 className="mb-2 text-lg font-semibold">Planta baixa com medidas reais</h1>
                 <p className="mb-4 text-sm text-stone-600 dark:text-stone-300">
-                  Fotografe o cômodo, informe uma medida real (trena ou câmera) e a IA desenha a planta com paredes, cotas, portas e janelas. No Android dá
-                  também para contornar o piso com a câmera em <b>Medir</b>. Repita para cada cômodo e encaixe-os arrastando.
+                  Contorne o piso com a câmera ou informe as paredes uma a uma (medidas com trena, câmera ou foto). A planta sai com paredes, cotas, portas e
+                  janelas. Repita para cada cômodo e encaixe-os arrastando. Tudo funciona no aparelho, sem custo.
                 </p>
                 <button className="rounded-xl bg-stone-900 px-5 py-2.5 font-medium text-white dark:bg-orange-600" onClick={() => setNovo(true)}>
                   Adicionar o primeiro cômodo
@@ -243,9 +243,13 @@ export default function App() {
       )}
       {novo && (
         <NovoComodo
+          posicao={posicaoLivre()}
           onFechar={() => setNovo(false)}
-          onLeitura={(l) => adicionar(comodoDaLeitura(l, posicaoLivre()))}
-          onRetangulo={(nome, w, h) => adicionar(comodoRetangular(nome, w, h, posicaoLivre()))}
+          onCriar={adicionar}
+          onContornar={() => {
+            setNovo(false)
+            setMedir(true)
+          }}
         />
       )}
     </div>

@@ -1,10 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { areaComSinal, contornoExterno, esticarParede, geoAbertura, orientar, paredes } from '../src/lib/geometria'
-import { comodoDaLeitura, comodoRetangular, poligonoDasParedes } from '../src/lib/montar'
+import { comodoDasParedes, comodoRetangular, erroDeFechamento, poligonoDasParedes } from '../src/lib/montar'
 import { gerarDXF } from '../src/lib/exportar/dxf'
 import { gerarDAE } from '../src/lib/exportar/dae'
-import type { LeituraComodo } from '../src/lib/leitura'
-import type { Projeto } from '../src/lib/tipos'
+import type { Comodo, Projeto } from '../src/lib/tipos'
 
 const comprimentos = (pts: { x: number; y: number }[]) => paredes(pts).map((p) => Math.round(p.comprimento * 10) / 10)
 
@@ -20,7 +19,7 @@ describe('fechamento das paredes', () => {
     expect(areaComSinal(pts)).toBeGreaterThan(0)
   })
 
-  test('erro de leitura é repartido e os cantos ficam em esquadro', () => {
+  test('erro de medida é repartido e os cantos ficam em esquadro', () => {
     const pts = poligonoDasParedes([
       { comprimento: 400, giro: 88 },
       { comprimento: 310, giro: 91 },
@@ -83,42 +82,44 @@ describe('geometria', () => {
   })
 })
 
-const leitura: LeituraComodo = {
-  nome: 'Quarto',
-  paredes: [
-    { descricao: 'janela', comprimento_cm: 320, giro_graus: 90 },
-    { descricao: 'armário', comprimento_cm: 280, giro_graus: 90 },
-    { descricao: 'porta', comprimento_cm: 320, giro_graus: 90 },
-    { descricao: 'cama', comprimento_cm: 280, giro_graus: 90 },
-  ],
-  pe_direito_cm: 265,
-  aberturas: [
-    { tipo: 'janela', parede: 0, distancia_inicio_cm: 100, largura_cm: 120, altura_cm: 100, peitoril_cm: 110 },
-    { tipo: 'porta', parede: 2, distancia_inicio_cm: 30, largura_cm: 80, altura_cm: 210, peitoril_cm: 0 },
-  ],
-  confianca: 'media',
-  observacoes: ['parede 4 estimada'],
+const paredesQuarto = [
+  { comprimento: 320, giro: 90 },
+  { comprimento: 280, giro: 90 },
+  { comprimento: 320, giro: 90 },
+  { comprimento: 280, giro: 90 },
+]
+
+function quarto(): Comodo {
+  const c = comodoDasParedes('Quarto', paredesQuarto, 265, { x: 0, y: 0 })
+  return {
+    ...c,
+    aberturas: [
+      { id: 'j', tipo: 'janela', parede: 0, centro: 160, largura: 120, altura: 100, peitoril: 110 },
+      { id: 'p', tipo: 'porta', parede: 2, centro: 70, largura: 80, altura: 210, peitoril: 0 },
+    ],
+  }
 }
 
-describe('leitura da IA → cômodo', () => {
-  test('monta polígono, aberturas e posição', () => {
-    const c = comodoDaLeitura(leitura, { x: 1000, y: 50 })
+describe('paredes medidas → cômodo', () => {
+  test('monta polígono na posição pedida, com pé-direito', () => {
+    const c = comodoDasParedes('Quarto', paredesQuarto, 265, { x: 1000, y: 50 })
     expect(comprimentos(c.pontos)).toEqual([320, 280, 320, 280])
     expect(Math.min(...c.pontos.map((p) => p.x))).toBe(1000)
     expect(c.peDireito).toBe(265)
-    expect(c.aberturas.map((a) => [a.tipo, a.parede, a.centro])).toEqual([
-      ['janela', 0, 160],
-      ['porta', 2, 70],
-    ])
   })
 
-  test('recusa leitura com menos de 3 paredes', () => {
-    expect(() => comodoDaLeitura({ ...leitura, paredes: leitura.paredes.slice(0, 2) }, { x: 0, y: 0 })).toThrow()
+  test('informa quanto as medidas deixam de fechar', () => {
+    expect(erroDeFechamento(paredesQuarto)).toBeCloseTo(0, 6)
+    expect(erroDeFechamento([{ comprimento: 320, giro: 90 }, ...paredesQuarto.slice(1, 3), { comprimento: 275, giro: 90 }])).toBeCloseTo(5, 6)
+  })
+
+  test('recusa menos de 3 paredes', () => {
+    expect(() => comodoDasParedes('X', paredesQuarto.slice(0, 2), 270, { x: 0, y: 0 })).toThrow()
   })
 })
 
 describe('exportação', () => {
-  const projeto: Projeto = { versao: 1, nome: 'Casa <teste>', espessuraParede: 15, comodos: [comodoDaLeitura(leitura, { x: 0, y: 0 })] }
+  const projeto: Projeto = { versao: 1, nome: 'Casa <teste>', espessuraParede: 15, comodos: [quarto()] }
 
   test('DXF R12 bem formado', () => {
     const dxf = gerarDXF(projeto)

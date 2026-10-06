@@ -1,7 +1,3 @@
 node_modules
 dist
-.wrangler
-.dev.vars
-.dev.vars.*
-!.dev.vars.exemplo
 *.local
