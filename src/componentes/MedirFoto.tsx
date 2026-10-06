@@ -3,7 +3,7 @@ import { Camera, Check, Download, Info, Maximize, Minus, Paperclip, Pencil, Plus
 import { AnexarFoto } from '@/lib/anexos'
 import { corDaMedida, descreverMedida, formatarCm, gerarFotoAnotada } from '@/lib/anotar'
 import { baixar } from '@/lib/armazenamento'
-import { detectarFolha, detectarQuinas, prepararImagem } from '@/lib/detectar'
+import { acharFolha, detectarQuinas } from '@/lib/detectar'
 import { homografiaDaReferencia, inversaDaReferencia, REFERENCIAS, type Referencia } from '@/lib/homografia'
 import { novoId, type Ponto } from '@/lib/tipos'
 import {
@@ -199,9 +199,9 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao, paraParede }: Props)
     // procura a folha (e, para uma parede, as quinas) sem travar a tela
     await new Promise((r) => setTimeout(r, 30))
     try {
-      const im = prepararImagem(img, w, h)
-      const folha = detectarFolha(im, Math.max(dims.largura, dims.altura) / Math.min(dims.largura, dims.altura))
-      if (!folha) return setDeteccao('sem-folha')
+      const achado = acharFolha(img, w, h, Math.max(dims.largura, dims.altura) / Math.min(dims.largura, dims.altura))
+      if (!achado) return setDeteccao('sem-folha')
+      const { folha, im } = achado
       setLivres(folha)
       if (paraParede) {
         const [a, b] = detectarQuinas(im, folha)

@@ -192,3 +192,31 @@ export function detectarQuinas(im: Imagem, folha: Ponto[]): [Ponto, Ponto] {
     { x: dir * im.escala, y: cy * im.escala },
   ]
 }
+
+/**
+ * Acha a folha e refina os cantos: a primeira busca é na foto reduzida; a
+ * segunda, só num recorte em volta da folha, em resolução bem maior (em fotos
+ * grandes, a folha ocupa poucos pixels na versão reduzida).
+ */
+export function acharFolha(img: CanvasImageSource, w: number, h: number, proporcao: number): { folha: Ponto[]; im: Imagem } | null {
+  const im = prepararImagem(img, w, h)
+  const grossa = detectarFolha(im, proporcao)
+  if (!grossa) return null
+  const xs = grossa.map((p) => p.x)
+  const ys = grossa.map((p) => p.y)
+  const lado = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) - lado))
+  const y0 = Math.max(0, Math.floor(Math.min(...ys) - lado))
+  const x1 = Math.min(w, Math.ceil(Math.max(...xs) + lado))
+  const y1 = Math.min(h, Math.ceil(Math.max(...ys) + lado))
+  const k = Math.min(1, LADO_ANALISE / Math.max(x1 - x0, y1 - y0))
+  const W = Math.max(1, Math.round((x1 - x0) * k))
+  const H = Math.max(1, Math.round((y1 - y0) * k))
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+  ctx.drawImage(img, x0, y0, x1 - x0, y1 - y0, 0, 0, W, H)
+  const fina = detectarFolha(imagemDosPixels(ctx.getImageData(0, 0, W, H).data, W, H, 1 / k), proporcao)
+  return { folha: fina ? fina.map((p) => ({ x: p.x + x0, y: p.y + y0 })) : grossa, im }
+}
