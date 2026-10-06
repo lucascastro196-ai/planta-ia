@@ -4,7 +4,7 @@ export interface NovaFoto {
   blob: Blob
   titulo: string
   referencia: string
-  medidas: { nome: string; cm: number }[]
+  medidas: { nome: string; cm: number; area?: number; lados?: number[] }[]
   comodoId?: string
 }
 

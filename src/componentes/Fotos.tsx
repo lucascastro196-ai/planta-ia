@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Download, ImageOff, Trash2, X } from 'lucide-react'
-import { corDaMedida, formatarCm } from '@/lib/anotar'
+import { corDaMedida, descreverMedida, formatarCm } from '@/lib/anotar'
+import { formatarArea } from '@/lib/traco'
 import { baixar } from '@/lib/armazenamento'
 import { apagarImagem, lerImagem } from '@/lib/fotosDb'
 import type { FotoMedida, Projeto } from '@/lib/tipos'
@@ -117,8 +118,11 @@ export function Fotos({ projeto, comodoId, onAlterar, onFechar }: Props) {
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ background: corDaMedida(i) }}>
                         {i + 1}
                       </span>
-                      <span className="flex-1">{m.nome}</span>
-                      <span className="font-semibold tabular-nums">{formatarCm(m.cm)}</span>
+                      <span className="flex-1">
+                        {m.nome}
+                        {m.area !== undefined && <span className="block text-xs text-stone-500">{descreverMedida(m)}</span>}
+                      </span>
+                      <span className="font-semibold tabular-nums">{m.area !== undefined ? formatarArea(m.area) : formatarCm(m.cm)}</span>
                     </li>
                   ))}
                 </ul>

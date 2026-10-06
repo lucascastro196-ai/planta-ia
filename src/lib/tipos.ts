@@ -45,7 +45,8 @@ export interface FotoMedida {
   criadaEm: string
   comodoId?: string
   referencia: string
-  medidas: { nome: string; cm: number }[]
+  /** cm: comprimento da linha ou perímetro da forma; area em m² e lados em cm só nas formas */
+  medidas: { nome: string; cm: number; area?: number; lados?: number[] }[]
 }
 
 export interface Projeto {
