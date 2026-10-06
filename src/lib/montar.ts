@@ -111,3 +111,18 @@ export function comodoRetangular(nome: string, largura: number, profundidade: nu
     aberturas: [],
   }
 }
+
+/** Cômodo a partir dos cantos do piso marcados com a câmera (cm, vista de cima). */
+export function comodoDoContorno(nome: string, pontosCm: Ponto[], posicao: Ponto): Comodo {
+  if (pontosCm.length < 3) throw new Error('Marque pelo menos 3 cantos.')
+  const { pontos } = orientar(pontosCm, [])
+  const minX = Math.min(...pontos.map((p) => p.x))
+  const minY = Math.min(...pontos.map((p) => p.y))
+  return {
+    id: novoId(),
+    nome,
+    pontos: pontos.map((p) => ({ x: Math.round(p.x - minX + posicao.x), y: Math.round(p.y - minY + posicao.y) })),
+    peDireito: 270,
+    aberturas: [],
+  }
+}

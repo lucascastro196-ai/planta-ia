@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Camera, Loader2, Plus, Square, Trash2, X } from 'lucide-react'
+import { Camera, Loader2, Plus, Ruler, Square, Trash2, X } from 'lucide-react'
 import { prepararFoto } from '@/lib/imagem'
 import type { FotoEnviada, LeituraComodo, MedidaInformada, PedidoAnalise } from '@/lib/leitura'
+import { Medidor } from './Medidor'
 
 type Foto = FotoEnviada & { previa: string; id: string }
 
@@ -24,6 +25,7 @@ export function NovoComodo({ onFechar, onLeitura, onRetangulo }: Props) {
   const [profundidade, setProfundidade] = useState('4,00')
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [medindo, setMedindo] = useState<number | 'pd' | null>(null)
 
   async function adicionarFotos(lista: FileList | null) {
     if (!lista) return
@@ -38,19 +40,19 @@ export function NovoComodo({ onFechar, onLeitura, onRetangulo }: Props) {
 
   const medidasValidas: MedidaInformada[] = medidas
     .filter((m) => m.descricao.trim() && numero(m.valor) > 0)
-    .map((m) => ({ descricao: m.descricao.trim(), metros: numero(m.valor) }))
+    .map((m) => ({ descricao: m.descricao.trim(), metros: numero(m.valor) / 100 }))
 
   async function gerar() {
     setErro(null)
     if (fotos.length === 0) return setErro('Adicione as fotos do cômodo.')
-    if (medidasValidas.length === 0) return setErro('Informe pelo menos uma medida tirada com trena (o que foi medido e quanto deu).')
+    if (medidasValidas.length === 0) return setErro('Informe pelo menos uma medida (o que foi medido e quantos centímetros deu).')
     setEnviando(true)
     try {
       const pedido: PedidoAnalise = {
         nome: nome.trim() || undefined,
         fotos: fotos.map(({ media_type, data }) => ({ media_type, data })),
         medidas: medidasValidas,
-        peDireitoMetros: numero(peDireito) > 0 ? numero(peDireito) : undefined,
+        peDireitoMetros: numero(peDireito) > 0 ? numero(peDireito) / 100 : undefined,
         observacao: observacao.trim() || undefined,
       }
       const r = await fetch('/api/analisar', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(pedido) })
@@ -146,8 +148,8 @@ export function NovoComodo({ onFechar, onLeitura, onRetangulo }: Props) {
               )}
             </div>
 
-            <div className="mb-1 text-sm font-medium">Medidas com trena</div>
-            <p className="mb-2 text-xs text-stone-500">Pelo menos uma. É ela que dá a escala: quanto mais medidas, mais precisa a planta.</p>
+            <div className="mb-1 text-sm font-medium">Medidas reais (cm)</div>
+            <p className="mb-2 text-xs text-stone-500">Pelo menos uma. É ela que dá a escala: quanto mais medidas, mais precisa a planta. Use a trena ou o botão da régua para medir com a câmera.</p>
             <div className="mb-2 space-y-2">
               {medidas.map((m, i) => (
                 <div key={i} className="flex gap-2">
@@ -159,11 +161,14 @@ export function NovoComodo({ onFechar, onLeitura, onRetangulo }: Props) {
                   />
                   <input
                     className={`${campo} w-24 shrink-0`}
-                    placeholder="m"
+                    placeholder="cm"
                     inputMode="decimal"
                     value={m.valor}
                     onChange={(e) => setMedidas((l) => l.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)))}
                   />
+                  <button className="shrink-0 rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-orange-600 dark:hover:bg-stone-800" onClick={() => setMedindo(i)} aria-label="Medir com a câmera" title="Medir com a câmera">
+                    <Ruler size={18} />
+                  </button>
                   {medidas.length > 1 && (
                     <button className="shrink-0 p-2 text-stone-400 hover:text-red-600" onClick={() => setMedidas((l) => l.filter((_, j) => j !== i))} aria-label="Remover medida">
                       <Trash2 size={16} />
@@ -176,10 +181,15 @@ export function NovoComodo({ onFechar, onLeitura, onRetangulo }: Props) {
               <Plus size={16} /> Outra medida
             </button>
 
-            <div className="mb-3 grid grid-cols-[8rem_1fr] gap-3">
+            <div className="mb-3 grid grid-cols-[9rem_1fr] gap-3">
               <label className="text-sm">
-                <span className="mb-1 block font-medium">Pé-direito (m)</span>
-                <input className={campo} inputMode="decimal" placeholder="opcional" value={peDireito} onChange={(e) => setPeDireito(e.target.value)} />
+                <span className="mb-1 block font-medium">Pé-direito (cm)</span>
+                <span className="flex gap-1">
+                  <input className={campo} inputMode="decimal" placeholder="opcional" value={peDireito} onChange={(e) => setPeDireito(e.target.value)} />
+                  <button type="button" className="shrink-0 rounded-lg p-2 text-stone-500 hover:text-orange-600" onClick={() => setMedindo('pd')} aria-label="Medir pé-direito com a câmera">
+                    <Ruler size={18} />
+                  </button>
+                </span>
               </label>
               <label className="text-sm">
                 <span className="mb-1 block font-medium">Observação</span>
@@ -204,6 +214,21 @@ export function NovoComodo({ onFechar, onLeitura, onRetangulo }: Props) {
           </>
         )}
       </div>
+      {medindo !== null && (
+        // o clique dentro do medidor não pode chegar no fundo deste diálogo (que fecharia tudo)
+        <div onClick={(e) => e.stopPropagation()}>
+        <Medidor
+          titulo={medindo === 'pd' ? 'Medir o pé-direito' : 'Medir com a câmera'}
+          onFechar={() => setMedindo(null)}
+          onUsar={(cm) => {
+            const valor = cm.toFixed(1).replace('.0', '').replace('.', ',')
+            if (medindo === 'pd') setPeDireito(valor)
+            else setMedidas((l) => l.map((x, j) => (j === medindo ? { ...x, valor } : x)))
+            setMedindo(null)
+          }}
+        />
+        </div>
+      )}
     </div>
   )
 }

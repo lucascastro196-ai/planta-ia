@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, FilePlus2, FolderOpen, Maximize2, Plus, Undo2 } from 'lucide-react'
+import { Download, FilePlus2, FolderOpen, Maximize2, Plus, Ruler, Undo2 } from 'lucide-react'
+import { Medidor } from './componentes/Medidor'
 import { NovoComodo } from './componentes/NovoComodo'
 import { PainelComodo } from './componentes/PainelComodo'
 import { Planta, type PlantaApi } from './componentes/Planta'
@@ -7,7 +8,7 @@ import { baixar, carregarProjeto, nomeArquivo, salvarProjeto } from './lib/armaz
 import { gerarDAE } from './lib/exportar/dae'
 import { gerarDXF } from './lib/exportar/dxf'
 import { limites } from './lib/geometria'
-import { comodoDaLeitura, comodoRetangular } from './lib/montar'
+import { comodoDaLeitura, comodoDoContorno, comodoRetangular } from './lib/montar'
 import { projetoVazio, type Comodo, type Ponto, type Projeto } from './lib/tipos'
 
 const LIMITE_DESFAZER = 50
@@ -17,6 +18,7 @@ export default function App() {
   const [selecionado, setSelecionado] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
   const [menu, setMenu] = useState(false)
+  const [medir, setMedir] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
   const historico = useRef<Projeto[]>([])
   const plantaRef = useRef<PlantaApi>(null)
@@ -118,6 +120,9 @@ export default function App() {
         <button className={`${botao} bg-stone-900 text-white hover:bg-stone-700 dark:bg-orange-600 dark:hover:bg-orange-500`} onClick={() => setNovo(true)}>
           <Plus size={16} /> Cômodo
         </button>
+        <button className={botao} onClick={() => setMedir(true)} title="Medir com a câmera">
+          <Ruler size={16} /> <span className="hidden sm:inline">Medir</span>
+        </button>
         <button className={botao} onClick={() => plantaRef.current?.enquadrar()} title="Enquadrar a planta">
           <Maximize2 size={16} />
         </button>
@@ -194,8 +199,8 @@ export default function App() {
               <div className="pointer-events-auto max-w-sm rounded-2xl bg-white/95 p-6 text-center shadow-lg dark:bg-stone-800/95">
                 <h1 className="mb-2 text-lg font-semibold">Planta baixa a partir de fotos</h1>
                 <p className="mb-4 text-sm text-stone-600 dark:text-stone-300">
-                  Fotografe o cômodo, informe uma medida tirada com trena e a IA desenha a planta com paredes, cotas, portas e janelas. Repita para cada cômodo e
-                  encaixe-os arrastando.
+                  Fotografe o cômodo, informe uma medida real (trena ou câmera) e a IA desenha a planta com paredes, cotas, portas e janelas. No Android dá
+                  também para contornar o piso com a câmera em <b>Medir</b>. Repita para cada cômodo e encaixe-os arrastando.
                 </p>
                 <button className="rounded-xl bg-stone-900 px-5 py-2.5 font-medium text-white dark:bg-orange-600" onClick={() => setNovo(true)}>
                   Adicionar o primeiro cômodo
@@ -227,6 +232,15 @@ export default function App() {
         )}
       </main>
 
+      {medir && (
+        <Medidor
+          onFechar={() => setMedir(false)}
+          onContorno={(pts) => {
+            setMedir(false)
+            adicionar(comodoDoContorno(`Cômodo ${projeto.comodos.length + 1}`, pts, posicaoLivre()))
+          }}
+        />
+      )}
       {novo && (
         <NovoComodo
           onFechar={() => setNovo(false)}

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, DoorOpen, PanelTop, Plus, Trash2, X } from 'lucide-react'
+import { AlertTriangle, DoorOpen, PanelTop, Plus, Ruler, Trash2, X } from 'lucide-react'
 import { areaM2, esticarParede, metros, paredes } from '@/lib/geometria'
 import { novoId, type Abertura, type Comodo } from '@/lib/tipos'
+import { Medidor } from './Medidor'
 
 interface Props {
   comodo: Comodo
@@ -33,6 +34,12 @@ function CampoMetros({ cm, onMudar, min = 0 }: { cm: number; onMudar: (cm: numbe
 
 export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar }: Props) {
   const ps = paredes(comodo.pontos)
+  const [medindo, setMedindo] = useState<number | 'pd' | null>(null)
+  const botaoMedir = (alvo: number | 'pd') => (
+    <button className="rounded-md p-1 text-stone-400 hover:text-orange-600" onClick={() => setMedindo(alvo)} aria-label="Medir com a câmera" title="Medir com a câmera">
+      <Ruler size={15} />
+    </button>
+  )
   const mudarAbertura = (id: string, f: Partial<Abertura>) =>
     onAlterar({ ...comodo, aberturas: comodo.aberturas.map((a) => (a.id === id ? { ...a, ...f } : a)) })
 
@@ -65,6 +72,7 @@ export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar }: Props) 
         <span className="flex items-center gap-2">
           Pé-direito
           <CampoMetros cm={comodo.peDireito} min={150} onMudar={(v) => onAlterar({ ...comodo, peDireito: v })} />
+          {botaoMedir('pd')}
         </span>
       </div>
 
@@ -87,7 +95,10 @@ export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar }: Props) 
         {ps.map((p) => (
           <div key={p.i} className="flex items-center justify-between">
             <span className="text-stone-600 dark:text-stone-400">Parede {p.i + 1}</span>
-            <CampoMetros cm={p.comprimento} min={10} onMudar={(v) => onAlterar({ ...comodo, pontos: esticarParede(comodo.pontos, p.i, v) })} />
+            <span className="flex items-center gap-1">
+              <CampoMetros cm={p.comprimento} min={10} onMudar={(v) => onAlterar({ ...comodo, pontos: esticarParede(comodo.pontos, p.i, v) })} />
+              {botaoMedir(p.i)}
+            </span>
           </div>
         ))}
       </div>
@@ -160,6 +171,17 @@ export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar }: Props) 
       <button className="mt-auto flex items-center justify-center gap-1 rounded-lg border border-red-200 py-2 text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950" onClick={onExcluir}>
         <Trash2 size={15} /> Excluir cômodo
       </button>
+      {medindo !== null && (
+        <Medidor
+          titulo={medindo === 'pd' ? 'Medir o pé-direito' : `Medir a parede ${medindo + 1}`}
+          onFechar={() => setMedindo(null)}
+          onUsar={(cm) => {
+            if (medindo === 'pd') onAlterar({ ...comodo, peDireito: cm })
+            else onAlterar({ ...comodo, pontos: esticarParede(comodo.pontos, medindo, cm) })
+            setMedindo(null)
+          }}
+        />
+      )}
     </div>
   )
 }
