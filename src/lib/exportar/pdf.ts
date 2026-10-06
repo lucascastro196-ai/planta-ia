@@ -71,7 +71,7 @@ export async function gerarPDF(projeto: Projeto, folha: Folha, escala = escolher
   doc.text(projeto.nome, MARGEM, yc + 9)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text('Planta baixa — medidas em metros, faces internas das paredes', MARGEM, yc + 16)
+  doc.text('Planta baixa - medidas em metros, faces internas das paredes', MARGEM, yc + 16)
   doc.text(`Escala 1:${escala}`, fw - MARGEM, yc + 9, { align: 'right' })
   doc.text(new Date().toLocaleDateString('pt-BR'), fw - MARGEM, yc + 16, { align: 'right' })
   return doc.output('blob')
