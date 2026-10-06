@@ -38,6 +38,8 @@ function CampoMetros({ cm, onMudar, min = 0 }: { cm: number; onMudar: (cm: numbe
 export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar, fotos, onVerFotos }: Props) {
   const ps = paredes(comodo.pontos)
   const [medindo, setMedindo] = useState<number | 'pd' | 'foto' | null>(null)
+  /** parede medida por foto (detecção automática) */
+  const [fotoParede, setFotoParede] = useState<number | null>(null)
   const botaoMedir = (alvo: number | 'pd') => (
     <button className="rounded-md p-1 text-stone-400 hover:text-orange-600" onClick={() => setMedindo(alvo)} aria-label="Medir com a câmera" title="Medir com a câmera">
       <Ruler size={15} />
@@ -101,6 +103,14 @@ export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar, fotos, on
             <span className="flex items-center gap-1">
               <CampoMetros cm={p.comprimento} min={10} onMudar={(v) => onAlterar({ ...comodo, pontos: esticarParede(comodo.pontos, p.i, v) })} />
               {botaoMedir(p.i)}
+              <button
+                className="rounded-md p-1 text-stone-400 hover:text-orange-600"
+                onClick={() => setFotoParede(p.i)}
+                aria-label={`Medir a parede ${p.i + 1} por foto`}
+                title="Foto da parede: medida automática"
+              >
+                <Camera size={15} />
+              </button>
             </span>
           </div>
         ))}
@@ -188,6 +198,19 @@ export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar, fotos, on
       <button className="mt-auto flex items-center justify-center gap-1 rounded-lg border border-red-200 py-2 text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950" onClick={onExcluir}>
         <Trash2 size={15} /> Excluir cômodo
       </button>
+      {fotoParede !== null && (
+        <Medidor
+          titulo={`Parede ${fotoParede + 1} por foto`}
+          paraParede={`Parede ${fotoParede + 1}`}
+          comodoId={comodo.id}
+          tituloFoto={`${comodo.nome} - parede ${fotoParede + 1}`}
+          onFechar={() => setFotoParede(null)}
+          onUsar={(cm) => {
+            onAlterar({ ...comodo, pontos: esticarParede(comodo.pontos, fotoParede, cm) })
+            setFotoParede(null)
+          }}
+        />
+      )}
       {medindo !== null && (
         <Medidor
           titulo={medindo === 'foto' ? `Medir na foto — ${comodo.nome}` : medindo === 'pd' ? 'Medir o pé-direito' : `Medir a parede ${medindo + 1}`}

@@ -14,14 +14,16 @@ interface Props {
   /** fotos anexadas a partir daqui ficam ligadas a este cômodo */
   comodoId?: string
   tituloFoto?: string
+  /** foto de uma parede: abre direto em "Medir na foto", já com a detecção automática */
+  paraParede?: string
 }
 
-export function Medidor({ titulo = 'Medir com a câmera', onFechar, onUsar, onContorno, comodoId, tituloFoto }: Props) {
+export function Medidor({ titulo = 'Medir com a câmera', onFechar, onUsar, onContorno, comodoId, tituloFoto, paraParede }: Props) {
   const suporte = useSuporteAR()
   const [aba, setAba] = useState<'ar' | 'foto'>('foto')
   useEffect(() => {
-    if (suporte === 'sim') setAba('ar')
-  }, [suporte])
+    if (suporte === 'sim' && !paraParede) setAba('ar')
+  }, [suporte, paraParede])
 
   return (
     <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 sm:items-center" onClick={onFechar}>
@@ -59,7 +61,7 @@ export function Medidor({ titulo = 'Medir com a câmera', onFechar, onUsar, onCo
             </div>
           )
         ) : (
-          <MedirFoto onUsar={onUsar} comodoId={comodoId} tituloPadrao={tituloFoto} />
+          <MedirFoto onUsar={onUsar} comodoId={comodoId} tituloPadrao={tituloFoto} paraParede={paraParede} />
         )}
       </div>
     </div>

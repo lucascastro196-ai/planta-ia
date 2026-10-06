@@ -3,6 +3,7 @@ import { Camera, Check, Download, Info, Maximize, Minus, Paperclip, Pencil, Plus
 import { AnexarFoto } from '@/lib/anexos'
 import { corDaMedida, descreverMedida, formatarCm, gerarFotoAnotada } from '@/lib/anotar'
 import { baixar } from '@/lib/armazenamento'
+import { detectarFolha, detectarQuinas, prepararImagem } from '@/lib/detectar'
 import { homografiaDaReferencia, inversaDaReferencia, REFERENCIAS, type Referencia } from '@/lib/homografia'
 import { novoId, type Ponto } from '@/lib/tipos'
 import {
@@ -25,6 +26,8 @@ interface Props {
   comodoId?: string
   /** título sugerido para a foto anexada */
   tituloPadrao?: string
+  /** foto de uma parede (nome dela): pede a foto, acha folha e quinas, e "Usar" já anexa a foto */
+  paraParede?: string
 }
 
 interface Foto {
@@ -86,8 +89,9 @@ function cantosDoMolde(m: Molde, w: number, h: number): Ponto[] {
   return cantosLocais(w, h).map((p) => ({ x: m.cx + (p.x * c - p.y * s) * m.s, y: m.cy + (p.x * s + p.y * c) * m.s }))
 }
 
-export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
+export function MedirFoto({ onUsar, comodoId, tituloPadrao, paraParede }: Props) {
   const anexar = useContext(AnexarFoto)
+  const [deteccao, setDeteccao] = useState<'procurando' | 'achou' | 'sem-folha' | null>(null)
   const [foto, setFoto] = useState<Foto | null>(null)
   const [ref, setRef] = useState<Referencia>('a4')
   const [refW, setRefW] = useState('60')
@@ -191,6 +195,58 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
     setSel(null)
     setAviso(null)
     setAtivo(novoTraco(false, f, 1, { x: w / 2, y: h / 2 }))
+    setDeteccao('procurando')
+    // procura a folha (e, para uma parede, as quinas) sem travar a tela
+    await new Promise((r) => setTimeout(r, 30))
+    try {
+      const im = prepararImagem(img, w, h)
+      const folha = detectarFolha(im, Math.max(dims.largura, dims.altura) / Math.min(dims.largura, dims.altura))
+      if (!folha) return setDeteccao('sem-folha')
+      setLivres(folha)
+      if (paraParede) {
+        const [a, b] = detectarQuinas(im, folha)
+        setAtivo({ fechada: false, pts: [a, b] })
+        setNomeNova(paraParede)
+      }
+      setDeteccao('achou')
+    } catch {
+      setDeteccao('sem-folha')
+    }
+  }
+
+  // aberto pelo botão de foto da parede: já pede a foto
+  const entrada = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (paraParede) entrada.current?.click()
+    // só ao abrir
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** "Usar na parede": grava a linha com o nome da parede, anexa a foto anotada e manda a medida */
+  async function usarNaParede() {
+    if (!ativo || !medidaAtiva || !onUsar) return
+    const g: Gravada = { ...ativo, id: novoId(), nome: nomeNova.trim() || paraParede || 'Parede' }
+    const todas = [...gravadas, g]
+    setGravadas(todas)
+    if (anexar && foto) {
+      setSalvando(true)
+      try {
+        const medidas = todas.flatMap((x) => {
+          const m = medirTraco(H, x)
+          return m ? [{ ...x, ...m }] : []
+        })
+        await anexar({
+          blob: await gerarFotoAnotada({ url: foto.url, w: foto.w, h: foto.h, titulo: titulo.trim() || g.nome, referencia: referenciaNome, cantos, medidas }),
+          titulo: titulo.trim() || g.nome,
+          referencia: referenciaNome,
+          medidas: medidas.map((m) => ({ nome: m.nome, cm: m.total, ...(m.fechada ? { area: m.area, lados: m.lados } : {}) })),
+          comodoId,
+        })
+      } finally {
+        setSalvando(false)
+      }
+    }
+    onUsar(medidaAtiva.total)
   }
 
   const cantos = livres ?? cantosDoMolde(molde, dims.largura, dims.altura)
@@ -416,7 +472,7 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
         <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-stone-300 py-10 text-stone-500 hover:border-orange-500 dark:border-stone-600">
           <Camera size={28} />
           Tirar ou escolher foto
-          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => abrir(e.target.files?.[0])} />
+          <input ref={entrada} type="file" accept="image/*" className="hidden" onChange={(e) => abrir(e.target.files?.[0])} />
         </label>
       </div>
     )
@@ -606,7 +662,7 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
         )}
         <label className="ml-auto cursor-pointer text-orange-600">
           Outra foto
-          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => abrir(e.target.files?.[0])} />
+          <input type="file" accept="image/*" className="hidden" onChange={(e) => abrir(e.target.files?.[0])} />
         </label>
       </div>
 
@@ -698,6 +754,36 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
         lado fica travado 🔒, gira pela ponta e anda pelo meio sem mudar a medida. Só vale na mesma parede da folha.
       </p>
 
+      {deteccao && (
+        <p
+          className={`rounded-lg px-3 py-2 text-xs ${
+            deteccao === 'achou'
+              ? 'bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-300'
+              : deteccao === 'procurando'
+                ? 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300'
+                : 'bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200'
+          }`}
+        >
+          {deteccao === 'procurando'
+            ? 'Procurando a folha na foto…'
+            : deteccao === 'achou'
+              ? paraParede
+                ? 'Folha e quinas da parede encontradas automaticamente. Confira os cantos azuis e as pontas laranja (use o zoom) antes de usar.'
+                : 'Folha encontrada automaticamente. Confira os cantos azuis com o zoom.'
+              : 'Não achei a folha sozinho: encaixe o molde azul nela (arraste e puxe um canto).'}
+        </p>
+      )}
+
+      {paraParede && onUsar && medidaAtiva && !ativo?.fechada && (
+        <button
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 py-3 font-medium text-white disabled:opacity-60"
+          onClick={usarNaParede}
+          disabled={salvando}
+        >
+          <Check size={18} /> {salvando ? 'Anexando a foto…' : `Usar ${formatarCm(medidaAtiva.total)} na ${paraParede.toLowerCase()}`}
+        </button>
+      )}
+
       <div className="rounded-xl bg-stone-900 p-3 text-white">
         <div className="mb-2 grid grid-cols-2 gap-1 rounded-lg bg-stone-800 p-1 text-sm">
           <button
@@ -726,7 +812,7 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
                 Remover ponto
               </button>
             )}
-            {onUsar && medidaAtiva && !ativo?.fechada && (
+            {onUsar && medidaAtiva && !ativo?.fechada && !paraParede && (
               <button className="rounded-lg bg-stone-700 px-3 py-2 text-sm font-medium" onClick={() => onUsar(medidaAtiva.total)}>
                 Usar
               </button>
