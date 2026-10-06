@@ -38,11 +38,22 @@ export interface Comodo {
   confianca?: 'alta' | 'media' | 'baixa'
 }
 
+/** Foto de levantamento com as medidas tiradas nela (a imagem anotada fica no IndexedDB). */
+export interface FotoMedida {
+  id: string
+  titulo: string
+  criadaEm: string
+  comodoId?: string
+  referencia: string
+  medidas: { nome: string; cm: number }[]
+}
+
 export interface Projeto {
   versao: 1
   nome: string
   espessuraParede: number
   comodos: Comodo[]
+  fotos?: FotoMedida[]
 }
 
 export function novoId(): string {

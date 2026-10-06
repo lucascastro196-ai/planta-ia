@@ -11,9 +11,12 @@ interface Props {
   onUsar?: (cm: number) => void
   /** cria cômodo a partir do contorno medido em AR */
   onContorno?: (pontosCm: Ponto[]) => void
+  /** fotos anexadas a partir daqui ficam ligadas a este cômodo */
+  comodoId?: string
+  tituloFoto?: string
 }
 
-export function Medidor({ titulo = 'Medir com a câmera', onFechar, onUsar, onContorno }: Props) {
+export function Medidor({ titulo = 'Medir com a câmera', onFechar, onUsar, onContorno, comodoId, tituloFoto }: Props) {
   const suporte = useSuporteAR()
   const [aba, setAba] = useState<'ar' | 'foto'>('foto')
   useEffect(() => {
@@ -56,7 +59,7 @@ export function Medidor({ titulo = 'Medir com a câmera', onFechar, onUsar, onCo
             </div>
           )
         ) : (
-          <MedirFoto onUsar={onUsar} />
+          <MedirFoto onUsar={onUsar} comodoId={comodoId} tituloPadrao={tituloFoto} />
         )}
       </div>
     </div>

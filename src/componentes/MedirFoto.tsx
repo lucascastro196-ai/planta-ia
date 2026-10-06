@@ -1,11 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, Info, Maximize, RotateCw, ScanSearch, ZoomIn, ZoomOut } from 'lucide-react'
+import { useContext, useEffect, useRef, useState } from 'react'
+import { Camera, Check, Download, Info, Maximize, Paperclip, Pencil, Plus, RotateCw, ScanSearch, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
+import { AnexarFoto } from '@/lib/anexos'
+import { corDaMedida, formatarCm, gerarFotoAnotada } from '@/lib/anotar'
+import { baixar } from '@/lib/armazenamento'
 import { homografiaDaReferencia, REFERENCIAS, type Referencia } from '@/lib/homografia'
-import type { Ponto } from '@/lib/tipos'
+import { novoId, type Ponto } from '@/lib/tipos'
 
 interface Props {
   /** com valor: mostra o botão "Usar" */
   onUsar?: (cm: number) => void
+  /** cômodo ao qual a foto anexada fica ligada */
+  comodoId?: string
+  /** título sugerido para a foto anexada */
+  tituloPadrao?: string
+}
+
+interface Gravada {
+  id: string
+  nome: string
+  a: Ponto
+  b: Ponto
 }
 
 interface Foto {
@@ -27,6 +41,7 @@ type Arrasto =
   | { tipo: 'mover'; inicio: Ponto; molde: Molde }
   | { tipo: 'livre'; i: number }
   | { tipo: 'medida'; i: number }
+  | { tipo: 'gravada'; id: string; i: number }
   | { tipo: 'pan'; tela: Ponto; centro: Ponto }
   | { tipo: 'pinca'; dist: number; zoom: number }
 
@@ -35,7 +50,6 @@ const numero = (s: string) => Number(s.replace(',', '.'))
 const RAIO_TELA = 11
 const ZOOM_MAX = 12
 
-/** Cantos locais (em cm) na ordem: cima-esq, cima-dir, baixo-dir, baixo-esq. */
 /** Parte da foto que aparece com o zoom, sem sair das bordas. */
 function vistaDe(foto: Foto, zoom: number, centro: Ponto) {
   const w = foto.w / zoom
@@ -48,6 +62,7 @@ function vistaDe(foto: Foto, zoom: number, centro: Ponto) {
   }
 }
 
+/** Cantos locais (em cm) na ordem: cima-esq, cima-dir, baixo-dir, baixo-esq. */
 const cantosLocais = (w: number, h: number): Ponto[] => [
   { x: -w / 2, y: -h / 2 },
   { x: w / 2, y: -h / 2 },
@@ -61,7 +76,8 @@ function cantosDoMolde(m: Molde, w: number, h: number): Ponto[] {
   return cantosLocais(w, h).map((p) => ({ x: m.cx + (p.x * c - p.y * s) * m.s, y: m.cy + (p.x * s + p.y * c) * m.s }))
 }
 
-export function MedirFoto({ onUsar }: Props) {
+export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
+  const anexar = useContext(AnexarFoto)
   const [foto, setFoto] = useState<Foto | null>(null)
   const [ref, setRef] = useState<Referencia>('a4')
   const [refW, setRefW] = useState('60')
@@ -75,6 +91,11 @@ export function MedirFoto({ onUsar }: Props) {
   const [zoom, setZoom] = useState(1)
   const [centro, setCentro] = useState<Ponto>({ x: 0, y: 0 })
   const toques = useRef(new Map<number, Ponto>())
+  const [gravadas, setGravadas] = useState<Gravada[]>([])
+  const [nomeNova, setNomeNova] = useState('')
+  const [titulo, setTitulo] = useState(tituloPadrao ?? '')
+  const [salvando, setSalvando] = useState(false)
+  const [aviso, setAviso] = useState<string | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
   const dims = ref === 'azulejo' ? { largura: numero(refW) || 1, altura: numero(refH) || 1 } : REFERENCIAS[ref]
@@ -128,6 +149,8 @@ export function MedirFoto({ onUsar }: Props) {
     // molde começa no meio, ocupando ~30% da altura da foto
     setMolde({ cx: w / 2, cy: h * 0.42, s: (h * 0.3) / Math.max(dims.largura, dims.altura), ang: 0 })
     setLivres(null)
+    setGravadas([])
+    setAviso(null)
     setMedida([
       { x: w * 0.15, y: h * 0.85 },
       { x: w * 0.85, y: h * 0.85 },
@@ -135,13 +158,76 @@ export function MedirFoto({ onUsar }: Props) {
   }
 
   const cantos = livres ?? cantosDoMolde(molde, dims.largura, dims.altura)
-  const H = useMemo(() => homografiaDaReferencia(cantos, dims.largura, dims.altura), [cantos, dims.largura, dims.altura])
-  let cm: number | null = null
-  if (H && medida.length === 2) {
-    const a = H(medida[0]!)
-    const b = H(medida[1]!)
-    const d = Math.hypot(a.x - b.x, a.y - b.y)
-    if (Number.isFinite(d) && d < 10000) cm = Math.round(d * 10) / 10
+  const H = homografiaDaReferencia(cantos, dims.largura, dims.altura)
+  /** distância real entre dois pontos da foto (as gravadas se recalculam se o molde mudar) */
+  const medir = (a: Ponto, b: Ponto): number | null => {
+    if (!H) return null
+    const p = H(a)
+    const q = H(b)
+    const d = Math.hypot(p.x - q.x, p.y - q.y)
+    return Number.isFinite(d) && d < 10000 ? Math.round(d * 10) / 10 : null
+  }
+  const cm = medida.length === 2 ? medir(medida[0]!, medida[1]!) : null
+  const referenciaNome =
+    ref === 'azulejo'
+      ? `peça de ${refW} × ${refH} cm`
+      : `${REFERENCIAS[ref].nome}, ${String(dims.largura).replace('.', ',')} × ${String(dims.altura).replace('.', ',')} cm`
+
+  const gravar = () => {
+    if (medida.length !== 2 || cm === null || !foto) return
+    setGravadas((l) => [...l, { id: novoId(), nome: nomeNova.trim() || `Medida ${l.length + 1}`, a: medida[0]!, b: medida[1]! }])
+    setNomeNova('')
+    setAviso(null)
+    // a próxima medida começa em pé, no meio do que está na tela
+    const v = vistaDe(foto, zoom, centro)
+    setMedida([
+      { x: v.x + v.w * 0.5, y: v.y + v.h * 0.25 },
+      { x: v.x + v.w * 0.5, y: v.y + v.h * 0.75 },
+    ])
+  }
+
+  const refazer = (g: Gravada) => {
+    setGravadas((l) => l.filter((x) => x.id !== g.id))
+    setMedida([g.a, g.b])
+    setNomeNova(g.nome)
+  }
+
+  const desenhadas = () => gravadas.map((g) => ({ nome: g.nome, a: g.a, b: g.b, cm: medir(g.a, g.b) ?? 0 }))
+
+  const imagemAnotada = () =>
+    gerarFotoAnotada({
+      url: foto!.url,
+      w: foto!.w,
+      h: foto!.h,
+      titulo: titulo.trim() || 'Medidas na foto',
+      referencia: referenciaNome,
+      cantos,
+      medidas: desenhadas(),
+    })
+
+  async function anexarAoProjeto() {
+    if (!anexar || gravadas.length === 0) return
+    setSalvando(true)
+    setAviso(null)
+    try {
+      await anexar({
+        blob: await imagemAnotada(),
+        titulo: titulo.trim() || 'Medidas na foto',
+        referencia: referenciaNome,
+        medidas: desenhadas().map(({ nome, cm }) => ({ nome, cm })),
+        comodoId,
+      })
+      setAviso('Foto com as medidas anexada ao projeto. Veja em Fotos e no PDF.')
+    } catch (e) {
+      setAviso(e instanceof Error ? e.message : 'Não consegui anexar a foto.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  async function baixarImagem() {
+    if (gravadas.length === 0) return
+    baixar(await imagemAnotada(), `${(titulo.trim() || 'medidas').replace(/[^\w-]+/g, '-')}.jpg`)
   }
 
   const naFoto = (e: React.PointerEvent): Ponto => {
@@ -199,6 +285,8 @@ export function MedirFoto({ onUsar }: Props) {
     }
     const p = naFoto(e)
     if (arrasto.tipo === 'medida') return setMedida((l) => l.map((q, i) => (i === arrasto.i ? p : q)))
+    if (arrasto.tipo === 'gravada')
+      return setGravadas((l) => l.map((g) => (g.id === arrasto.id ? (arrasto.i === 0 ? { ...g, a: p } : { ...g, b: p }) : g)))
     if (arrasto.tipo === 'livre') return setLivres((l) => l && l.map((q, i) => (i === arrasto.i ? p : q)))
     if (arrasto.tipo === 'mover') {
       const m = arrasto.molde
@@ -245,7 +333,19 @@ export function MedirFoto({ onUsar }: Props) {
   }
   const raio = RAIO_TELA * unidadePorPx
   const traco = 2 * unidadePorPx
-  const alvo = !arrasto ? null : arrasto.tipo === 'medida' ? medida[arrasto.i] : arrasto.tipo === 'canto' || arrasto.tipo === 'livre' ? cantos[arrasto.i] : null
+  const gravadaAlvo = arrasto?.tipo === 'gravada' ? gravadas.find((g) => g.id === arrasto.id) : undefined
+  const alvo = !arrasto
+    ? null
+    : arrasto.tipo === 'medida'
+      ? medida[arrasto.i]
+      : arrasto.tipo === 'canto' || arrasto.tipo === 'livre'
+        ? cantos[arrasto.i]
+        : gravadaAlvo && arrasto.tipo === 'gravada'
+          ? arrasto.i === 0
+            ? gravadaAlvo.a
+            : gravadaAlvo.b
+          : null
+  const letra = 13 * unidadePorPx
   const lupa = 40 * unidadePorPx
   const botao = 'rounded-md border border-stone-300 px-2 py-1 text-xs hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800'
 
@@ -297,7 +397,50 @@ export function MedirFoto({ onUsar }: Props) {
             style={{ cursor: livres ? 'default' : 'move' }}
             onPointerDown={livres ? undefined : (e) => comecar(e, { tipo: 'mover', inicio: naFoto(e), molde })}
           />
-          {medida.length === 2 && <line x1={medida[0]!.x} y1={medida[0]!.y} x2={medida[1]!.x} y2={medida[1]!.y} stroke="#f97316" strokeWidth={traco * 1.5} />}
+          {gravadas.map((g, i) => {
+            const cor = corDaMedida(i)
+            const meio = { x: (g.a.x + g.b.x) / 2, y: (g.a.y + g.b.y) / 2 }
+            const valor = formatarCm(medir(g.a, g.b) ?? 0)
+            return (
+              <g key={g.id}>
+                <line x1={g.a.x} y1={g.a.y} x2={g.b.x} y2={g.b.y} stroke="#fff" strokeWidth={traco * 3} strokeLinecap="round" />
+                <line x1={g.a.x} y1={g.a.y} x2={g.b.x} y2={g.b.y} stroke={cor} strokeWidth={traco * 1.5} strokeLinecap="round" />
+                {[g.a, g.b].map((p, k) => (
+                  <circle key={k} cx={p.x} cy={p.y} r={raio * 0.75} fill={cor} stroke="#fff" strokeWidth={traco} onPointerDown={(e) => comecar(e, { tipo: 'gravada', id: g.id, i: k })} />
+                ))}
+                <g pointerEvents="none">
+                  <rect
+                    x={meio.x - letra * 0.9}
+                    y={meio.y - letra * 2.6}
+                    width={letra * 2 + letra * 0.6 * valor.length}
+                    height={letra * 1.7}
+                    rx={letra * 0.85}
+                    fill="#fff"
+                    stroke={cor}
+                    strokeWidth={traco}
+                  />
+                  <circle cx={meio.x} cy={meio.y - letra * 1.75} r={letra * 0.7} fill={cor} />
+                  <text x={meio.x} y={meio.y - letra * 1.75} dy="0.35em" fontSize={letra * 0.9} fontWeight={700} fill="#fff" textAnchor="middle">
+                    {i + 1}
+                  </text>
+                  <text x={meio.x + letra * 0.95} y={meio.y - letra * 1.75} dy="0.35em" fontSize={letra} fontWeight={700} fill="#1c1917">
+                    {valor}
+                  </text>
+                </g>
+              </g>
+            )
+          })}
+          {medida.length === 2 && (
+            <line
+              x1={medida[0]!.x}
+              y1={medida[0]!.y}
+              x2={medida[1]!.x}
+              y2={medida[1]!.y}
+              stroke="#f97316"
+              strokeWidth={traco * 1.5}
+              strokeDasharray={`${traco * 4} ${traco * 3}`}
+            />
+          )}
           {cantos.map((p, i) => (
             <circle
               key={`r${i}`}
@@ -366,14 +509,93 @@ export function MedirFoto({ onUsar }: Props) {
         <span className="font-medium text-orange-600">Laranja</span>: as pontas do que quer medir. Só vale na mesma parede da folha.
       </p>
 
-      <div className="flex items-center justify-between rounded-xl bg-stone-900 px-4 py-3 text-white">
-        <span className="text-2xl font-semibold tabular-nums">{cm !== null ? `${cm.toFixed(1).replace('.', ',')} cm` : '—'}</span>
-        {onUsar && cm !== null && (
-          <button className="rounded-lg bg-orange-600 px-4 py-2 font-medium" onClick={() => onUsar(cm!)}>
-            Usar
+      <div className="rounded-xl bg-stone-900 p-3 text-white">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-2xl font-semibold tabular-nums">{cm !== null ? formatarCm(cm) : '—'}</span>
+          {onUsar && cm !== null && (
+            <button className="rounded-lg bg-stone-700 px-3 py-2 text-sm font-medium" onClick={() => onUsar(cm)}>
+              Usar
+            </button>
+          )}
+        </div>
+        <div className="mt-2 flex gap-2">
+          <input
+            className="min-w-0 flex-1 rounded-lg bg-stone-800 px-3 py-2 text-sm outline-none placeholder:text-stone-500 focus:ring-2 focus:ring-orange-500"
+            placeholder={`Nome da medida ${gravadas.length + 1} (ex.: largura da parede)`}
+            value={nomeNova}
+            onChange={(e) => setNomeNova(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && gravar()}
+          />
+          <button className="flex shrink-0 items-center gap-1 rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium disabled:opacity-50" onClick={gravar} disabled={cm === null}>
+            <Plus size={16} /> Gravar
           </button>
-        )}
+        </div>
       </div>
+
+      {gravadas.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-sm font-medium">Medidas gravadas nesta foto</div>
+          {gravadas.map((g, i) => {
+            const valor = medir(g.a, g.b)
+            return (
+              <div key={g.id} className="flex items-center gap-2 rounded-lg border border-stone-200 px-2 py-1.5 dark:border-stone-700">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white" style={{ background: corDaMedida(i) }}>
+                  {i + 1}
+                </span>
+                <input
+                  className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 hover:border-stone-300 focus:border-orange-500 focus:outline-none"
+                  value={g.nome}
+                  onChange={(e) => setGravadas((l) => l.map((x) => (x.id === g.id ? { ...x, nome: e.target.value } : x)))}
+                  aria-label={`Nome da medida ${i + 1}`}
+                />
+                <span className="shrink-0 font-semibold tabular-nums">{valor !== null ? formatarCm(valor) : '—'}</span>
+                {onUsar && valor !== null && (
+                  <button className="shrink-0 rounded-md px-2 py-1 text-xs text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950" onClick={() => onUsar(valor)}>
+                    Usar
+                  </button>
+                )}
+                <button className="shrink-0 p-1 text-stone-400 hover:text-stone-700" onClick={() => refazer(g)} aria-label="Refazer esta medida" title="Refazer">
+                  <Pencil size={14} />
+                </button>
+                <button className="shrink-0 p-1 text-stone-400 hover:text-red-600" onClick={() => setGravadas((l) => l.filter((x) => x.id !== g.id))} aria-label="Excluir medida">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            )
+          })}
+
+          <div className="space-y-2 rounded-xl border border-stone-200 p-3 dark:border-stone-700">
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Título da foto</span>
+              <input
+                className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500 dark:border-stone-600 dark:bg-stone-800"
+                placeholder="Ex.: Sala — parede da TV"
+                value={titulo}
+                onChange={(e) => setTitulo(e.target.value)}
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {anexar && (
+                <button
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-stone-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60 dark:bg-orange-600"
+                  onClick={anexarAoProjeto}
+                  disabled={salvando}
+                >
+                  <Paperclip size={15} /> {salvando ? 'Anexando…' : 'Anexar foto com medidas ao projeto'}
+                </button>
+              )}
+              <button className="flex items-center justify-center gap-1.5 rounded-lg border border-stone-300 px-3 py-2 text-sm dark:border-stone-600" onClick={baixarImagem}>
+                <Download size={15} /> Baixar imagem
+              </button>
+            </div>
+            {aviso && (
+              <p className="flex items-center gap-1 text-xs text-green-700 dark:text-green-400">
+                <Check size={14} /> {aviso}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

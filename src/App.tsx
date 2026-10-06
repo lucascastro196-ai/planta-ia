@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, FilePlus2, FolderOpen, Maximize2, Plus, Ruler, Undo2 } from 'lucide-react'
+import { Download, FilePlus2, FolderOpen, Images, Maximize2, Plus, Ruler, Undo2 } from 'lucide-react'
+import { Fotos } from './componentes/Fotos'
 import { Medidor } from './componentes/Medidor'
+import { AnexarFoto, type NovaFoto } from './lib/anexos'
+import { blobParaDataUrl, dataUrlParaBlob, lerImagem, salvarImagem } from './lib/fotosDb'
 import { NovoComodo } from './componentes/NovoComodo'
 import { PainelComodo } from './componentes/PainelComodo'
 import { Planta, type PlantaApi } from './componentes/Planta'
@@ -9,7 +12,10 @@ import { gerarDAE } from './lib/exportar/dae'
 import { gerarDXF } from './lib/exportar/dxf'
 import { limites } from './lib/geometria'
 import { comodoDoContorno } from './lib/montar'
-import { projetoVazio, type Comodo, type Ponto, type Projeto } from './lib/tipos'
+import { novoId, projetoVazio, type Comodo, type Ponto, type Projeto } from './lib/tipos'
+
+/** Arquivo .planta.json: o projeto mais as imagens das fotos (em data URL), para abrir em outro aparelho. */
+type ArquivoProjeto = Projeto & { imagens?: Record<string, string> }
 
 const LIMITE_DESFAZER = 50
 
@@ -20,6 +26,8 @@ export default function App() {
   const [menu, setMenu] = useState(false)
   const [medir, setMedir] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
+  /** galeria aberta: 'todas' ou o id do cômodo */
+  const [galeria, setGaleria] = useState<string | null>(null)
   const historico = useRef<Projeto[]>([])
   const plantaRef = useRef<PlantaApi>(null)
   const projetoRef = useRef(projeto)
@@ -72,18 +80,42 @@ export default function App() {
     setTimeout(() => plantaRef.current?.enquadrar(), 50)
   }
 
+  const anexarFoto = async (f: NovaFoto) => {
+    const id = novoId()
+    await salvarImagem(id, f.blob)
+    const p = projetoRef.current
+    alterar({
+      ...p,
+      fotos: [...(p.fotos ?? []), { id, titulo: f.titulo, criadaEm: new Date().toISOString(), comodoId: f.comodoId, referencia: f.referencia, medidas: f.medidas }],
+    })
+  }
+
+  /** imagens das fotos anexadas, na ordem do projeto (as que não estão neste aparelho ficam de fora) */
+  const imagensDasFotos = async () => {
+    const saida: { foto: NonNullable<Projeto['fotos']>[number]; dataUrl: string }[] = []
+    for (const foto of projeto.fotos ?? []) {
+      const b = await lerImagem(foto.id).catch(() => undefined)
+      if (b) saida.push({ foto, dataUrl: await blobParaDataUrl(b) })
+    }
+    return saida
+  }
+
   const exportar = async (tipo: 'pdf-a4' | 'pdf-a3' | 'dxf' | 'dae' | 'json') => {
     setMenu(false)
-    if (projeto.comodos.length === 0 && tipo !== 'json') return setAviso('Adicione pelo menos um cômodo antes de exportar.')
+    if (projeto.comodos.length === 0 && tipo !== 'json' && !(tipo.startsWith('pdf') && projeto.fotos?.length))
+      return setAviso('Adicione pelo menos um cômodo antes de exportar.')
     const nome = nomeArquivo(projeto)
     try {
       if (tipo === 'dxf') baixar(gerarDXF(projeto), `${nome}.dxf`, 'application/dxf')
       else if (tipo === 'dae') baixar(gerarDAE(projeto), `${nome}.dae`, 'model/vnd.collada+xml')
-      else if (tipo === 'json') baixar(JSON.stringify(projeto, null, 2), `${nome}.planta.json`, 'application/json')
-      else {
+      else if (tipo === 'json') {
+        const imagens = Object.fromEntries((await imagensDasFotos()).map((x) => [x.foto.id, x.dataUrl]))
+        const arquivo: ArquivoProjeto = { ...projeto, imagens }
+        baixar(JSON.stringify(arquivo), `${nome}.planta.json`, 'application/json')
+      } else {
         setAviso('Gerando PDF…')
         const { gerarPDF } = await import('./lib/exportar/pdf')
-        baixar(await gerarPDF(projeto, tipo === 'pdf-a4' ? 'A4' : 'A3'), `${nome}.pdf`, 'application/pdf')
+        baixar(await gerarPDF(projeto, tipo === 'pdf-a4' ? 'A4' : 'A3', await imagensDasFotos()), `${nome}.pdf`, 'application/pdf')
         setAviso(null)
       }
     } catch (e) {
@@ -95,9 +127,10 @@ export default function App() {
     if (!arquivo) return
     arquivo
       .text()
-      .then((t) => {
-        const p = JSON.parse(t) as Projeto
+      .then(async (t) => {
+        const { imagens, ...p } = JSON.parse(t) as ArquivoProjeto
         if (p.versao !== 1 || !Array.isArray(p.comodos)) throw new Error()
+        for (const [id, url] of Object.entries(imagens ?? {})) await salvarImagem(id, await dataUrlParaBlob(url))
         alterar(p)
         setSelecionado(null)
         setTimeout(() => plantaRef.current?.enquadrar(), 50)
@@ -109,6 +142,7 @@ export default function App() {
   const botao = 'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm hover:bg-stone-100 dark:hover:bg-stone-800'
 
   return (
+    <AnexarFoto.Provider value={anexarFoto}>
     <div className="flex h-dvh flex-col bg-white text-stone-900 dark:bg-stone-900 dark:text-stone-100">
       <header className="flex flex-wrap items-center gap-1 border-b border-stone-200 px-3 py-2 dark:border-stone-700">
         <input
@@ -122,6 +156,10 @@ export default function App() {
         </button>
         <button className={botao} onClick={() => setMedir(true)} title="Medir com a câmera">
           <Ruler size={16} /> <span className="hidden sm:inline">Medir</span>
+        </button>
+        <button className={botao} onClick={() => setGaleria('todas')} title="Fotos com medidas">
+          <Images size={16} /> <span className="hidden sm:inline">Fotos</span>
+          {(projeto.fotos?.length ?? 0) > 0 && <span className="rounded-full bg-orange-600 px-1.5 text-xs text-white">{projeto.fotos!.length}</span>}
         </button>
         <button className={botao} onClick={() => plantaRef.current?.enquadrar()} title="Enquadrar a planta">
           <Maximize2 size={16} />
@@ -227,6 +265,8 @@ export default function App() {
                 setSelecionado(null)
               }}
               onFechar={() => setSelecionado(null)}
+              fotos={(projeto.fotos ?? []).filter((f) => f.comodoId === comodoSel.id).length}
+              onVerFotos={() => setGaleria(comodoSel.id)}
             />
           </aside>
         )}
@@ -252,6 +292,15 @@ export default function App() {
           }}
         />
       )}
+      {galeria && (
+        <Fotos
+          projeto={projeto}
+          comodoId={galeria === 'todas' ? undefined : galeria}
+          onAlterar={(fotos) => alterar({ ...projeto, fotos })}
+          onFechar={() => setGaleria(null)}
+        />
+      )}
     </div>
+    </AnexarFoto.Provider>
   )
 }

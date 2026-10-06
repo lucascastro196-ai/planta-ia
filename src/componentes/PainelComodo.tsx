@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, DoorOpen, PanelTop, Plus, Ruler, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Camera, DoorOpen, Images, PanelTop, Plus, Ruler, Trash2, X } from 'lucide-react'
 import { areaM2, esticarParede, metros, paredes } from '@/lib/geometria'
 import { novoId, type Abertura, type Comodo } from '@/lib/tipos'
 import { Medidor } from './Medidor'
@@ -9,6 +9,9 @@ interface Props {
   onAlterar: (c: Comodo) => void
   onExcluir: () => void
   onFechar: () => void
+  /** quantas fotos com medidas estão ligadas a este cômodo */
+  fotos: number
+  onVerFotos: () => void
 }
 
 /** Campo numérico em metros que só aplica ao sair (ou Enter), para não refazer a planta a cada tecla. */
@@ -32,9 +35,9 @@ function CampoMetros({ cm, onMudar, min = 0 }: { cm: number; onMudar: (cm: numbe
   )
 }
 
-export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar }: Props) {
+export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar, fotos, onVerFotos }: Props) {
   const ps = paredes(comodo.pontos)
-  const [medindo, setMedindo] = useState<number | 'pd' | null>(null)
+  const [medindo, setMedindo] = useState<number | 'pd' | 'foto' | null>(null)
   const botaoMedir = (alvo: number | 'pd') => (
     <button className="rounded-md p-1 text-stone-400 hover:text-orange-600" onClick={() => setMedindo(alvo)} aria-label="Medir com a câmera" title="Medir com a câmera">
       <Ruler size={15} />
@@ -168,18 +171,38 @@ export function PainelComodo({ comodo, onAlterar, onExcluir, onFechar }: Props) 
         })}
       </div>
 
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="font-medium">Fotos com medidas</h3>
+        <div className="flex gap-1">
+          {fotos > 0 && (
+            <button className="flex items-center gap-1 rounded-md border border-stone-300 px-2 py-1 text-xs hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800" onClick={onVerFotos}>
+              <Images size={12} /> Ver ({fotos})
+            </button>
+          )}
+          <button className="flex items-center gap-1 rounded-md border border-stone-300 px-2 py-1 text-xs hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800" onClick={() => setMedindo('foto')}>
+            <Camera size={12} /> Medir na foto
+          </button>
+        </div>
+      </div>
+
       <button className="mt-auto flex items-center justify-center gap-1 rounded-lg border border-red-200 py-2 text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950" onClick={onExcluir}>
         <Trash2 size={15} /> Excluir cômodo
       </button>
       {medindo !== null && (
         <Medidor
-          titulo={medindo === 'pd' ? 'Medir o pé-direito' : `Medir a parede ${medindo + 1}`}
+          titulo={medindo === 'foto' ? `Medir na foto — ${comodo.nome}` : medindo === 'pd' ? 'Medir o pé-direito' : `Medir a parede ${medindo + 1}`}
           onFechar={() => setMedindo(null)}
-          onUsar={(cm) => {
-            if (medindo === 'pd') onAlterar({ ...comodo, peDireito: cm })
-            else onAlterar({ ...comodo, pontos: esticarParede(comodo.pontos, medindo, cm) })
-            setMedindo(null)
-          }}
+          comodoId={comodo.id}
+          tituloFoto={comodo.nome}
+          onUsar={
+            medindo === 'foto'
+              ? undefined
+              : (cm) => {
+                  if (medindo === 'pd') onAlterar({ ...comodo, peDireito: cm })
+                  else onAlterar({ ...comodo, pontos: esticarParede(comodo.pontos, medindo, cm) })
+                  setMedindo(null)
+                }
+          }
         />
       )}
     </div>
