@@ -2,7 +2,8 @@ import type { Ponto } from './tipos'
 import { centroDoTraco, formatarArea, segmentos, type MedidaTraco, type Traco } from './traco'
 
 /** Cores das medidas gravadas, na ordem. */
-export const CORES_MEDIDA = ['#ea580c', '#16a34a', '#9333ea', '#dc2626', '#0891b2', '#ca8a04', '#db2777', '#4f46e5']
+// sem laranja: laranja é a medida em edição
+export const CORES_MEDIDA = ['#16a34a', '#9333ea', '#dc2626', '#0891b2', '#ca8a04', '#db2777', '#4f46e5', '#0d9488']
 export const corDaMedida = (i: number) => CORES_MEDIDA[i % CORES_MEDIDA.length]!
 export const formatarCm = (cm: number) => `${cm.toFixed(1).replace('.', ',')} cm`
 
