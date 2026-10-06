@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "arquitetura",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "not_found_handling": "single-page-application",
+    // só /api/* passa pelo Worker; o resto é arquivo estático
+    "run_worker_first": ["/api/*"]
+  },
+  // ANTHROPIC_API_KEY é segredo: em produção `bunx wrangler secret put ANTHROPIC_API_KEY`,
+  // no desenvolvimento local fica em .dev.vars (veja .dev.vars.exemplo)
+  "observability": { "enabled": true }
+}
