@@ -47,12 +47,8 @@ export function homografia(de: Ponto[], para: Ponto[]): Homografia | null {
   }
 }
 
-/**
- * Coloca os 4 cantos marcados em ordem (horária, começando no de cima à
- * esquerda) e decide qual lado da referência é o comprido pelo que aparece
- * maior na foto. Assim a pessoa pode arrastar os cantos em qualquer ordem.
- */
-export function homografiaDaReferencia(cantos: Ponto[], larguraCm: number, alturaCm: number): Homografia | null {
+/** Cantos da foto em ordem e os cantos reais (cm) correspondentes. */
+function paresDaReferencia(cantos: Ponto[], larguraCm: number, alturaCm: number): [Ponto[], Ponto[]] | null {
   if (cantos.length !== 4) return null
   const c = { x: cantos.reduce((s, p) => s + p.x, 0) / 4, y: cantos.reduce((s, p) => s + p.y, 0) / 4 }
   const ordem = [...cantos].sort((p, q) => Math.atan2(p.y - c.y, p.x - c.x) - Math.atan2(q.y - c.y, q.x - c.x))
@@ -64,12 +60,31 @@ export function homografiaDaReferencia(cantos: Ponto[], larguraCm: number, altur
   const maior = Math.max(larguraCm, alturaCm)
   const menor = Math.min(larguraCm, alturaCm)
   const [w, h] = horizontal >= vertical ? [maior, menor] : [menor, maior]
-  return homografia(p, [
-    { x: 0, y: 0 },
-    { x: w, y: 0 },
-    { x: w, y: h },
-    { x: 0, y: h },
-  ])
+  return [
+    p,
+    [
+      { x: 0, y: 0 },
+      { x: w, y: 0 },
+      { x: w, y: h },
+      { x: 0, y: h },
+    ],
+  ]
+}
+
+/**
+ * Coloca os 4 cantos marcados em ordem (horária, começando no de cima à
+ * esquerda) e decide qual lado da referência é o comprido pelo que aparece
+ * maior na foto. Assim a pessoa pode arrastar os cantos em qualquer ordem.
+ */
+export function homografiaDaReferencia(cantos: Ponto[], larguraCm: number, alturaCm: number): Homografia | null {
+  const pares = paresDaReferencia(cantos, larguraCm, alturaCm)
+  return pares ? homografia(pares[0], pares[1]) : null
+}
+
+/** O caminho de volta: de centímetros reais no plano da referência para pixels da foto. */
+export function inversaDaReferencia(cantos: Ponto[], larguraCm: number, alturaCm: number): Homografia | null {
+  const pares = paresDaReferencia(cantos, larguraCm, alturaCm)
+  return pares ? homografia(pares[1], pares[0]) : null
 }
 
 export const REFERENCIAS = {

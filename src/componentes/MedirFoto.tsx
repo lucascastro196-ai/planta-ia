@@ -3,9 +3,20 @@ import { Camera, Check, Download, Info, Maximize, Minus, Paperclip, Pencil, Plus
 import { AnexarFoto } from '@/lib/anexos'
 import { corDaMedida, descreverMedida, formatarCm, gerarFotoAnotada } from '@/lib/anotar'
 import { baixar } from '@/lib/armazenamento'
-import { homografiaDaReferencia, REFERENCIAS, type Referencia } from '@/lib/homografia'
+import { homografiaDaReferencia, inversaDaReferencia, REFERENCIAS, type Referencia } from '@/lib/homografia'
 import { novoId, type Ponto } from '@/lib/tipos'
-import { centroDoTraco, formatarArea, medirTraco, segmentos, type Traco } from '@/lib/traco'
+import {
+  aplicarComprimento,
+  centroDoTraco,
+  formatarArea,
+  medirTraco,
+  reaplicarTravas,
+  remapearTravas,
+  restringirPonto,
+  segmentos,
+  transladarLado,
+  type Traco,
+} from '@/lib/traco'
 
 interface Props {
   /** com valor: mostra o botão "Usar" nas linhas */
@@ -39,6 +50,7 @@ type Arrasto =
   | { tipo: 'mover'; inicio: Ponto; molde: Molde }
   | { tipo: 'livre'; i: number }
   | { tipo: 'vertice'; dono: Dono; i: number }
+  | { tipo: 'lado'; dono: Dono; seg: [number, number]; inicio: Ponto; pts0: Ponto[] }
   | { tipo: 'pan'; tela: Ponto; centro: Ponto }
   | { tipo: 'pinca'; dist: number; zoom: number }
 
@@ -183,6 +195,18 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
 
   const cantos = livres ?? cantosDoMolde(molde, dims.largura, dims.altura)
   const H = homografiaDaReferencia(cantos, dims.largura, dims.altura)
+  const Hinv = inversaDaReferencia(cantos, dims.largura, dims.altura)
+  const chaveReferencia = cantos.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(';') + `|${dims.largura}x${dims.altura}`
+  const arrastando = arrasto !== null
+
+  // se a referência mudar, as medidas digitadas continuam valendo: os pontos se ajustam
+  useEffect(() => {
+    if (!H || !Hinv || arrastando) return
+    setAtivo((t) => (t?.travados ? reaplicarTravas(t, H, Hinv) : t))
+    setGravadas((l) => (l.some((g) => g.travados) ? l.map((g) => ({ ...g, ...reaplicarTravas(g, H, Hinv) })) : l))
+    // H e Hinv mudam junto com a chave
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chaveReferencia, arrastando])
   const medidaAtiva = ativo ? medirTraco(H, ativo) : null
   const referenciaNome =
     ref === 'azulejo'
@@ -207,7 +231,7 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
 
   const refazer = (g: Gravada) => {
     setGravadas((l) => l.filter((x) => x.id !== g.id))
-    setAtivo({ pts: g.pts, fechada: g.fechada })
+    setAtivo({ pts: g.pts, fechada: g.fechada, travados: g.travados })
     setNomeNova(g.nome)
     setSel(null)
   }
@@ -216,8 +240,30 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
     if (!sel) return
     const t = tracoDe(sel.dono)
     if (!t || t.pts.length <= (t.fechada ? 3 : 2)) return
-    mudarTraco(sel.dono, (x) => ({ ...x, pts: x.pts.filter((_, i) => i !== sel.i) }))
+    mudarTraco(sel.dono, (x) => {
+      const depois = { ...x, pts: x.pts.filter((_, i) => i !== sel.i) }
+      return { ...depois, travados: remapearTravas(x, depois, (j) => (j === sel.i ? null : j > sel.i ? j - 1 : j)) }
+    })
     setSel(null)
+  }
+
+  /** toque no valor de um lado: digitar a medida real trava o lado; apagar destrava */
+  const digitarLado = (dono: Dono, s: number) => {
+    const t = tracoDe(dono)
+    if (!t || !H || !Hinv) return
+    const atual = t.travados?.[s] ?? medirTraco(H, t)?.lados[s]
+    const resp = window.prompt('Medida real deste lado, em cm (deixe vazio para destravar):', atual !== undefined ? String(atual).replace('.', ',') : '')
+    if (resp === null) return
+    const cm = numero(resp.trim())
+    mudarTraco(dono, (x) => {
+      const travados = { ...(x.travados ?? {}) }
+      if (!resp.trim() || !(cm > 0)) {
+        delete travados[s]
+        return { ...x, travados: Object.keys(travados).length ? travados : undefined }
+      }
+      travados[s] = cm
+      return { ...x, travados, pts: aplicarComprimento(x, s, cm, H, Hinv) }
+    })
   }
 
   const desenhadas = () =>
@@ -292,7 +338,10 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
     if (!t) return
     const meio = { x: (t.pts[a]!.x + t.pts[b]!.x) / 2, y: (t.pts[a]!.y + t.pts[b]!.y) / 2 }
     const pos = b === 0 ? t.pts.length : b
-    mudarTraco(dono, (x) => ({ ...x, pts: [...x.pts.slice(0, pos), meio, ...x.pts.slice(pos)] }))
+    mudarTraco(dono, (x) => {
+      const depois = { ...x, pts: [...x.pts.slice(0, pos), meio, ...x.pts.slice(pos)] }
+      return { ...depois, travados: remapearTravas(x, depois, (j) => (j >= pos ? j + 1 : j)) }
+    })
     setSel({ dono, i: pos })
     comecar(e, { tipo: 'vertice', dono, i: pos })
   }
@@ -328,7 +377,17 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
       })
     }
     const p = naFoto(e)
-    if (arrasto.tipo === 'vertice') return mudarTraco(arrasto.dono, (t) => ({ ...t, pts: t.pts.map((q, i) => (i === arrasto.i ? p : q)) }))
+    if (arrasto.tipo === 'vertice')
+      return mudarTraco(arrasto.dono, (t) => {
+        const q = H && Hinv ? restringirPonto(t, arrasto.i, p, H, Hinv) : p
+        return { ...t, pts: t.pts.map((x, i) => (i === arrasto.i ? q : x)) }
+      })
+    if (arrasto.tipo === 'lado') {
+      if (!H || !Hinv) return
+      const R = H(p)
+      const delta = { x: R.x - arrasto.inicio.x, y: R.y - arrasto.inicio.y }
+      return mudarTraco(arrasto.dono, (t) => ({ ...t, pts: transladarLado(arrasto.pts0, arrasto.seg, delta, H, Hinv) }))
+    }
     if (arrasto.tipo === 'livre') return setLivres((l) => l && l.map((q, i) => (i === arrasto.i ? p : q)))
     if (arrasto.tipo === 'mover') {
       const m = arrasto.molde
@@ -389,12 +448,21 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
   const podeRemover = !!tracoSel && tracoSel.pts.length > (tracoSel.fechada ? 3 : 2)
 
   /** etiqueta de texto com fundo branco, em unidades da foto */
-  const Etiqueta = ({ c, texto, cor, tam = letra }: { c: Ponto; texto: string; cor: string; tam?: number }) => {
+  const Etiqueta = ({ c, texto, cor, tam = letra, escura = false }: { c: Ponto; texto: string; cor: string; tam?: number; escura?: boolean }) => {
     const larg = tam * 0.62 * texto.length + tam * 0.9
     return (
-      <g pointerEvents="none">
-        <rect x={c.x - larg / 2} y={c.y - tam * 0.75} width={larg} height={tam * 1.5} rx={tam * 0.75} fill="#fff" stroke={cor} strokeWidth={traco * 0.8} />
-        <text x={c.x} y={c.y} dy="0.35em" fontSize={tam} fontWeight={700} fill="#1c1917" textAnchor="middle">
+      <g>
+        <rect
+          x={c.x - larg / 2}
+          y={c.y - tam * 0.75}
+          width={larg}
+          height={tam * 1.5}
+          rx={tam * 0.75}
+          fill={escura ? '#1c1917' : '#fff'}
+          stroke={cor}
+          strokeWidth={traco * 0.8}
+        />
+        <text x={c.x} y={c.y} dy="0.35em" fontSize={tam} fontWeight={700} fill={escura ? '#fff' : '#1c1917'} textAnchor="middle" pointerEvents="none">
           {texto}
         </text>
       </g>
@@ -434,18 +502,42 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
           ny /= len
           if (t.fechada ? nx * (meio.x - c.x) + ny * (meio.y - c.y) < 0 : ny > 0) (nx = -nx), (ny = -ny)
           const rotulo = { x: meio.x + nx * letra * 1.5, y: meio.y + ny * letra * 1.5 }
+          const travado = t.travados?.[s]
           return (
             <g key={s}>
-              {m && <Etiqueta c={rotulo} texto={(m.lados[s] ?? 0).toFixed(1).replace('.', ',')} cor={cor} />}
-              <g onPointerDown={(e) => inserirPonto(e, dono, a, b)} style={{ cursor: 'copy' }}>
-                <circle cx={meio.x} cy={meio.y} r={raio * 0.6} fill="#fff" stroke={cor} strokeWidth={traco} />
-                <path
-                  d={`M${meio.x - raio * 0.32} ${meio.y}H${meio.x + raio * 0.32}M${meio.x} ${meio.y - raio * 0.32}V${meio.y + raio * 0.32}`}
-                  stroke={cor}
-                  strokeWidth={traco}
-                  pointerEvents="none"
-                />
-              </g>
+              {m && (
+                // toque no valor: digitar a medida real
+                <g onPointerDown={(e) => e.stopPropagation()} onClick={() => digitarLado(dono, s)} style={{ cursor: 'text' }}>
+                  <Etiqueta
+                    c={rotulo}
+                    texto={`${travado !== undefined ? '🔒 ' : ''}${(travado ?? m.lados[s] ?? 0).toFixed(1).replace('.', ',')}`}
+                    cor={cor}
+                    escura={travado !== undefined}
+                  />
+                </g>
+              )}
+              {travado !== undefined ? (
+                // lado travado: o meio vira alça para mover o lado inteiro, sem mudar a medida
+                <g onPointerDown={(e) => H && comecar(e, { tipo: 'lado', dono, seg: [a, b], inicio: H(naFoto(e)), pts0: t.pts })} style={{ cursor: 'move' }}>
+                  <circle cx={meio.x} cy={meio.y} r={raio * 0.7} fill="#1c1917" stroke="#fff" strokeWidth={traco} />
+                  <path
+                    d={`M${meio.x - raio * 0.4} ${meio.y}H${meio.x + raio * 0.4}M${meio.x} ${meio.y - raio * 0.4}V${meio.y + raio * 0.4}`}
+                    stroke="#fff"
+                    strokeWidth={traco}
+                    pointerEvents="none"
+                  />
+                </g>
+              ) : (
+                <g onPointerDown={(e) => inserirPonto(e, dono, a, b)} style={{ cursor: 'copy' }}>
+                  <circle cx={meio.x} cy={meio.y} r={raio * 0.6} fill="#fff" stroke={cor} strokeWidth={traco} />
+                  <path
+                    d={`M${meio.x - raio * 0.32} ${meio.y}H${meio.x + raio * 0.32}M${meio.x} ${meio.y - raio * 0.32}V${meio.y + raio * 0.32}`}
+                    stroke={cor}
+                    strokeWidth={traco}
+                    pointerEvents="none"
+                  />
+                </g>
+              )}
             </g>
           )
         })}
@@ -602,7 +694,8 @@ export function MedirFoto({ onUsar, comodoId, tituloPadrao }: Props) {
           </>
         )}{' '}
         <span className="font-medium text-orange-600">Laranja</span>: o que você está medindo. Puxe o <b>+</b> no meio de um lado para criar um ponto (os
-        "dentes"); toque num ponto e use <b>Remover ponto</b> para tirar. Só vale na mesma parede da folha.
+        "dentes"); toque num ponto e use <b>Remover ponto</b> para tirar. <b>Toque no valor de um lado para digitar a medida real</b> (ex.: pé-direito 300): o
+        lado fica travado 🔒, gira pela ponta e anda pelo meio sem mudar a medida. Só vale na mesma parede da folha.
       </p>
 
       <div className="rounded-xl bg-stone-900 p-3 text-white">
