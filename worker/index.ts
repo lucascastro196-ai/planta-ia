@@ -90,7 +90,11 @@ async function analisar(req: Request, env: Env): Promise<Response> {
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) return json({ erro: 'Chave da API da Anthropic inválida.' }, 500)
     if (e instanceof Anthropic.RateLimitError) return json({ erro: 'Muitos pedidos seguidos. Espere um minuto e tente de novo.' }, 429)
-    if (e instanceof Anthropic.BadRequestError) return json({ erro: `Pedido recusado pela API: ${e.message}` }, 400)
+    if (e instanceof Anthropic.BadRequestError) {
+      if (/credit balance/i.test(e.message))
+        return json({ erro: 'A conta da Anthropic está sem créditos. Adicione créditos em console.anthropic.com → Billing e tente de novo.' }, 402)
+      return json({ erro: `Pedido recusado pela API: ${e.message}` }, 400)
+    }
     if (e instanceof Anthropic.APIError) return json({ erro: `Falha na API da IA (${e.status ?? 'sem status'}). Tente de novo.` }, 502)
     throw e
   }
